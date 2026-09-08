@@ -29,3 +29,9 @@ jobs:
 
     - name: Compila APK Debug
       run: gradle assembleDebug --no-daemon
+
+    - name: Carica APK nei risultati
+      uses: actions/upload-artifact@v4
+      with:
+        name: Contacolpi-App
+        path: '**/build/outputs/apk/debug/*.apk'
