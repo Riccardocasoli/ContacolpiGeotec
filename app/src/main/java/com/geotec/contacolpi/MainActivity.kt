@@ -1,6 +1,597 @@
 package com.geotec.contacolpi
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.concurrent.thread
+import kotlin.math.abs
+
+data class IntervalData(
+    val depthMeter: Double,
+    var blowCount: Int
+)
+
+data class TestSession(
+    val id: String = UUID.randomUUID().toString(),
+    val projectName: String,
+    val operatorName: String,
+    val testType: String,
+    val date: String,
+    val intervals: List<IntervalData>
+)
+
+class MainActivity : ComponentActivity() {
+
+    private var hasAudioPermission by mutableStateOf(false)
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasAudioPermission = isGranted
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            hasAudioPermission = true
+        }
+
+        setContent {
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    ContacolpiApp(hasAudioPermission = hasAudioPermission)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ContacolpiApp(hasAudioPermission: Boolean) {
+    var isTestActive by remember { mutableStateOf(false) }
+
+    // Parametri cantiere e prova
+    var projectName by remember { mutableStateOf("Cantiere Alpha") }
+    var operatorName by remember { mutableStateOf("Ing. Rossi") }
+    var selectedTestType by remember { mutableStateOf("DPSH") }
+    var stepSizeCm by remember { mutableStateOf("20") } // cm per intervallo
+
+    // Storico prove locali
+    val completedTests = remember { mutableStateListOf<TestSession>() }
+
+    var showMenu by remember { mutableStateOf(false) }
+
+    if (!isTestActive) {
+        // SCHERMATA INIZIALE / SETUP
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Contacolpi Geotec - Home") },
+                    actions = {
+                        IconButton(onClick = { showMenu = !showMenu }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Esporta Tutte le Prove (CSV)") },
+                                onClick = {
+                                    showMenu = false
+                                    // Gestito in sottoschermata o per singola prova
+                                }
+                            )
+                        }
+                    }
+                )
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Riquadro Info Cantiere / Statistiche
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Statistiche Cantiere",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Prove completate per '$projectName': ${completedTests.count { it.projectName == projectName }}")
+                        Text("Totale complessivo prove registrate: ${completedTests.size}")
+                    }
+                )
+
+                OutlinedTextField(
+                    value = projectName,
+                    onValueChange = { projectName = it },
+                    label = { Text("Nome Cantiere / Progetto") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = operatorName,
+                    onValueChange = { operatorName = it },
+                    label = { Text("Operatore") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Selezione Tipo Prova
+                val testTypes = listOf("DPSH", "DPM", "DPL", "DL30", "SPT", "Personalizzato")
+                var expandedType by remember { mutableStateOf(false) }
+
+                ExposedDropdownMenuBox(
+                    expanded = expandedType,
+                    onExpandedChange = { expandedType = !expandedType }
+                ) {
+                    OutlinedTextField(
+                        value = selectedTestType,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Tipo Prova Penetrometrica") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedType) },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandedType,
+                        onDismissRequest = { expandedType = false }
+                    ) {
+                        testTypes.forEach { type ->
+                            DropdownMenuItem(
+                                text = { Text(type) },
+                                onClick = {
+                                    selectedTestType = type
+                                    expandedType = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = stepSizeCm,
+                    onValueChange = { stepSizeCm = it },
+                    label = { Text("Avanzamento per intervallo (cm)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                Button(
+                    onClick = { isTestActive = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    enabled = hasAudioPermission
+                ) {
+                    Text("AVVIA NUOVA PROVA", fontSize = 18.sp)
+                }
+            }
+        }
+    } else {
+        // SCHERMATA DI CONTEGGIO ATTIVA
+        CountingScreen(
+            projectName = projectName,
+            operatorName = operatorName,
+            testType = selectedTestType,
+            stepCm = stepSizeCm.toDoubleOrNull() ?: 20.0,
+            hasAudioPermission = hasAudioPermission,
+            onFinishTest = { session ->
+                if (session != null) {
+                    completedTests.add(session)
+                }
+                isTestActive = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CountingScreen(
+    projectName: String,
+    operatorName: String,
+    testType: String,
+    stepCm: Double,
+    hasAudioPermission: Boolean,
+    onFinishTest: (TestSession?) -> Unit
+) {
+    val context = LocalContext.current
+    val stepMeter = stepCm / 100.0
+
+    val intervals = remember { mutableStateListOf(IntervalData(stepMeter, 0)) }
+    var currentIntervalIndex by remember { mutableStateOf(0) }
+    var isRecording by remember { mutableStateOf(false) }
+    var sensitivityThreshold by remember { mutableStateOf(3000f) }
+
+    val listState = rememberLazyListState()
+
+    // Scorrimento automatico verso l'ultimo elemento della lista
+    LaunchedEffect(intervals.size, currentIntervalIndex) {
+        if (intervals.isNotEmpty()) {
+            listState.animateScrollToItem(intervals.size - 1)
+        }
+    }
+
+    // Algoritmo di rilevamento audio
+    DisposableEffect(isRecording) {
+        var audioRecord: AudioRecord? = null
+        var isThreadRunning = false
+
+        if (isRecording && hasAudioPermission) {
+            val sampleRate = 44100
+            val bufferSize = AudioRecord.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+
+            try {
+                audioRecord = AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    bufferSize
+                )
+
+                audioRecord.startRecording()
+                isThreadRunning = true
+
+                thread {
+                    val buffer = ShortArray(bufferSize)
+                    var lastPeakTime = 0L
+
+                    while (isThreadRunning) {
+                        val read = audioRecord.read(buffer, 0, buffer.size)
+                        if (read > 0) {
+                            var maxAmp = 0
+                            for (i in 0 until read) {
+                                val absVal = abs(buffer[i].toInt())
+                                if (absVal > maxAmp) maxAmp = absVal
+                            }
+
+                            val now = System.currentTimeMillis()
+                            if (maxAmp > sensitivityThreshold && (now - lastPeakTime) > 300) {
+                                lastPeakTime = now
+                                if (currentIntervalIndex < intervals.size) {
+                                    intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
+                                        blowCount = intervals[currentIntervalIndex].blowCount + 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        onDispose {
+            isThreadRunning = false
+            try {
+                audioRecord?.stop()
+                audioRecord?.release()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    var showCancelDialog by remember { mutableStateOf(false) }
+
+    if (showCancelDialog) {
+        AlertDialog(
+            onDismissRequest = { showCancelDialog = false },
+            title = { Text("Interrompere la prova?") },
+            text = { Text("Tornando alla schermata iniziale, la prova corrente verrà annullata.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCancelDialog = false
+                    onFinishTest(null)
+                }) {
+                    Text("Annulla ed Esci")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelDialog = false }) {
+                    Text("Continua Prova")
+                }
+            }
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("$projectName ($testType)") },
+                navigationIcon = {
+                    IconButton(onClick = { showCancelDialog = true }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Esci")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = {
+                        val session = TestSession(
+                            projectName = projectName,
+                            operatorName = operatorName,
+                            testType = testType,
+                            date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()),
+                            intervals = intervals.toList()
+                        )
+                        exportAndShareCSV(context, session)
+                    }) {
+                        Text("CSV", fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(12.dp)
+        ) {
+            // Scheda Riepilogo Rapido
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Operatore: $operatorName", style = MaterialTheme.typography.bodySmall)
+                Text("Tratto attuale: #${currentIntervalIndex + 1}", style = MaterialTheme.typography.bodySmall)
+            }
+
+            // Lista Graficizzata/Compatta dei tratti
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(Color(0xFFF5F5F5)),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                contentPadding = PaddingValues(6.dp)
+            ) {
+                itemsIndexed(intervals) { idx, item ->
+                    val isCurrent = idx == currentIntervalIndex
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = String.format(Locale.US, "%.1f m", item.depthMeter),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                text = "${item.blowCount} colpi",
+                                fontSize = 16.sp,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Pulsante Prossimo Tratto / Avanzamento
+            Button(
+                onClick = {
+                    val nextDepth = (intervals.size + 1) * stepMeter
+                    intervals.add(IntervalData(nextDepth, 0))
+                    currentIntervalIndex = intervals.size - 1
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("PROSSIMO TRATTO (+${stepCm.toInt()} cm)")
+            }
+
+            // Tasti di Correzione
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                // Tasto - (Riduce la serie corrente)
+                OutlinedButton(onClick = {
+                    if (intervals[currentIntervalIndex].blowCount > 0) {
+                        intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
+                            blowCount = intervals[currentIntervalIndex].blowCount - 1
+                        )
+                    }
+                }) {
+                    Text("-1 (Attuale)")
+                }
+
+                // Tasto < (Sposta colpo al tratto precedente)
+                OutlinedButton(onClick = {
+                    if (currentIntervalIndex > 0 && intervals[currentIntervalIndex].blowCount > 0) {
+                        intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
+                            blowCount = intervals[currentIntervalIndex].blowCount - 1
+                        )
+                        intervals[currentIntervalIndex - 1] = intervals[currentIntervalIndex - 1].copy(
+                            blowCount = intervals[currentIntervalIndex - 1].blowCount + 1
+                        )
+                    }
+                }) {
+                    Text("< Sposta prec.")
+                }
+
+                // Tasto > (Sposta colpo al tratto successivo)
+                OutlinedButton(onClick = {
+                    if (currentIntervalIndex < intervals.size - 1 && intervals[currentIntervalIndex].blowCount > 0) {
+                        intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
+                            blowCount = intervals[currentIntervalIndex].blowCount - 1
+                        )
+                        intervals[currentIntervalIndex + 1] = intervals[currentIntervalIndex + 1].copy(
+                            blowCount = intervals[currentIntervalIndex + 1].blowCount + 1
+                        )
+                    }
+                }) {
+                    Text("Sposta succ. >")
+                }
+
+                // Tasto + (Aumenta la serie corrente)
+                OutlinedButton(onClick = {
+                    intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
+                        blowCount = intervals[currentIntervalIndex].blowCount + 1
+                    )
+                }) {
+                    Text("+1 (Attuale)")
+                }
+            }
+
+            // Controllo Ascolto
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { isRecording = !isRecording },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isRecording) Color(0xFFD32F2F) else Color(0xFF388E3C)
+                    )
+                ) {
+                    Text(if (isRecording) "PAUSA ASCOLTO" else "AVVIA ASCOLTO")
+                }
+
+                Text(
+                    text = if (isRecording) "Microfono attivo" else "In pausa",
+                    fontSize = 12.sp,
+                    color = if (isRecording) Color(0xFF388E3C) else Color.Gray
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Pulsante Termina Prova
+            Button(
+                onClick = {
+                    val session = TestSession(
+                        projectName = projectName,
+                        operatorName = operatorName,
+                        testType = testType,
+                        date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()),
+                        intervals = intervals.toList()
+                    )
+                    onFinishTest(session)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+            ) {
+                Text("FINE PROVA")
+            }
+        }
+    }
+}
+
+fun exportAndShareCSV(context: Context, session: TestSession) {
+    try {
+        val fileName = "Contacolpi_${session.projectName.replace(" ", "_")}_${System.currentTimeMillis()}.csv"
+        val file = File(context.cacheDir, fileName)
+
+        val builder = StringBuilder()
+        builder.append("Cantiere;${session.projectName}\n")
+        builder.append("Operatore;${session.operatorName}\n")
+        builder.append("Tipo Prova;${session.testType}\n")
+        builder.append("Data;${session.date}\n\n")
+        builder.append("Profondita (m);Colpi\n")
+
+        for (interval in session.intervals) {
+            builder.append(String.format(Locale.US, "%.1f;%d\n", interval.depthMeter, interval.blowCount))
+        }
+
+        file.writeText(builder.toString())
+
+        val uri = FileProvider.getUriForFile(
+            context,
+            "com.geotec.contacolpi.fileprovider",
+            file
+        )
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        context.startActivity(Intent.createChooser(intent, "Esporta CSV con:"))
+    } catch (e: Exception) {
+        e.printStackTrace()
+        Toast.makeText(context, "Errore durante l'esportazione CSV", Toast.LENGTH_SHORT).show()
+    }
+}package com.geotec.contacolpi
+
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
