@@ -39,18 +39,8 @@ import java.util.*
 import kotlin.concurrent.thread
 import kotlin.math.*
 
-data class IntervalData(
-    val depthMeter: Double,
-    var blowCount: Int
-)
-
-data class LocationUTM32N(
-    val eastX: Double,
-    val northY: Double,
-    val altitudeZ: Double,
-    val accuracyMeters: Float
-)
-
+data class IntervalData(val depthMeter: Double, var blowCount: Int)
+data class LocationUTM32N(val eastX: Double, val northY: Double, val altitudeZ: Double, val accuracyMeters: Float)
 data class TestSession(
     val id: String = UUID.randomUUID().toString(),
     val projectName: String,
@@ -67,32 +57,22 @@ fun wgs84ToEPSG32632(lat: Double, lon: Double): Pair<Double, Double> {
     val k0 = 0.9996
     val e2 = f * (2 - f)
     val e2prime = e2 / (1 - e2)
-
     val latRad = Math.toRadians(lat)
     val lonRad = Math.toRadians(lon)
     val lon0 = Math.toRadians(9.0)
-
     val N = a / sqrt(1 - e2 * sin(latRad) * sin(latRad))
     val T = tan(latRad) * tan(latRad)
     val C = e2prime * cos(latRad) * cos(latRad)
     val A = (lonRad - lon0) * cos(latRad)
-
-    val M = a * ((1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256) * latRad
-            - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 * e2 * e2 / 1024) * sin(2 * latRad)
-            + (15 * e2 * e2 / 256 + 45 * e2 * e2 * e2 / 1024) * sin(4 * latRad)
-            - (35 * e2 * e2 * e2 / 3072) * sin(6 * latRad))
-
+    val M = a * ((1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256) * latRad - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 * e2 * e2 / 1024) * sin(2 * latRad) + (15 * e2 * e2 / 256 + 45 * e2 * e2 * e2 / 1024) * sin(4 * latRad) - (35 * e2 * e2 * e2 / 3072) * sin(6 * latRad))
     val eTerm = A + (1 - T + C) * A * A * A / 6.0 + (5 - 18 * T + T * T + 72 * C - 58 * e2prime) * A * A * A * A * A / 120.0
     val easting = k0 * N * eTerm + 500000.0
-
     val nTerm = (A * A / 2.0) + (5 - T + 9 * C + 4 * C * C) * A * A * A * A / 24.0 + (61 - 58 * T + T * T + 600 * C - 330 * e2prime) * A * A * A * A * A * A / 720.0
     val northing = k0 * (M + N * tan(latRad) * nTerm)
-
     return Pair(easting, northing)
 }
 
 class MainActivity : ComponentActivity() {
-
     private var hasAudioPermission by mutableStateOf(false)
     private var hasLocationPermission by mutableStateOf(false)
 
@@ -105,22 +85,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         try {
             val audioGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             val locationGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-
             hasAudioPermission = audioGranted
             hasLocationPermission = locationGranted
-
             if (!audioGranted || !locationGranted) {
-                permissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.RECORD_AUDIO,
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    )
-                )
+                permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -128,14 +99,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    ContacolpiApp(
-                        hasAudioPermission = hasAudioPermission,
-                        hasLocationPermission = hasLocationPermission
-                    )
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    ContacolpiApp(hasAudioPermission = hasAudioPermission, hasLocationPermission = hasLocationPermission)
                 }
             }
         }
@@ -147,15 +112,12 @@ class MainActivity : ComponentActivity() {
 fun ContacolpiApp(hasAudioPermission: Boolean, hasLocationPermission: Boolean) {
     val context = LocalContext.current
     var isTestActive by remember { mutableStateOf(false) }
-
     var projectName by remember { mutableStateOf("Cantiere Alpha") }
     var operatorName by remember { mutableStateOf("Ing. Rossi") }
     var selectedTestType by remember { mutableStateOf("DPSH") }
     var stepSizeCm by remember { mutableStateOf("20") }
-
     var currentLocationUTM by remember { mutableStateOf<LocationUTM32N?>(null) }
     var isLocating by remember { mutableStateOf(false) }
-
     val completedTests = remember { mutableStateListOf<TestSession>() }
     var showMenu by remember { mutableStateOf(false) }
 
@@ -168,96 +130,45 @@ fun ContacolpiApp(hasAudioPermission: Boolean, hasLocationPermission: Boolean) {
                         IconButton(onClick = { showMenu = !showMenu }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "Menu")
                         }
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Info Sistema") },
-                                onClick = { showMenu = false }
-                            )
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(text = { Text("Info Sistema") }, onClick = { showMenu = false })
                         }
                     }
                 )
             }
         ) { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
+            Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Statistiche Cantiere",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text(text = "Statistiche Cantiere", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Prove per '$projectName': ${completedTests.count { it.projectName == projectName }}")
                         Text("Totale prove registrate: ${completedTests.size}")
                     }
-                )
-
-                OutlinedTextField(
-                    value = projectName,
-                    onValueChange = { projectName = it },
-                    label = { Text("Nome Cantiere / Progetto") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = operatorName,
-                    onValueChange = { operatorName = it },
-                    label = { Text("Operatore") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                }
+                OutlinedTextField(value = projectName, onValueChange = { projectName = it }, label = { Text("Nome Cantiere / Progetto") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = operatorName, onValueChange = { operatorName = it }, label = { Text("Operatore") }, modifier = Modifier.fillMaxWidth())
 
                 val testTypes = listOf("DPSH", "DPM", "DPL", "DL30", "SPT", "Personalizzato")
                 var expandedType by remember { mutableStateOf(false) }
 
-                ExposedDropdownMenuBox(
-                    expanded = expandedType,
-                    onExpandedChange = { expandedType = !expandedType }
-                ) {
+                ExposedDropdownMenuBox(expanded = expandedType, onExpandedChange = { expandedType = !expandedType }) {
                     OutlinedTextField(
                         value = selectedTestType,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Tipo Prova Penetrometrica") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedType) },
-                        modifier = Modifier
-                            .menuAnchor()
-                            .fillMaxWidth()
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
                     )
-                    ExposedDropdownMenu(
-                        expanded = expandedType,
-                        onDismissRequest = { expandedType = false }
-                    ) {
+                    ExposedDropdownMenu(expanded = expandedType, onDismissRequest = { expandedType = false }) {
                         testTypes.forEach { type ->
-                            DropdownMenuItem(
-                                text = { Text(type) },
-                                onClick = {
-                                    selectedTestType = type
-                                    expandedType = false
-                                }
-                            )
+                            DropdownMenuItem(text = { Text(type) }, onClick = { selectedTestType = type; expandedType = false })
                         }
                     }
                 }
 
-                OutlinedTextField(
-                    value = stepSizeCm,
-                    onValueChange = { stepSizeCm = it },
-                    label = { Text("Avanzamento per intervallo (cm)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
+                OutlinedTextField(value = stepSizeCm, onValueChange = { stepSizeCm = it }, label = { Text("Avanzamento per intervallo (cm)") }, modifier = Modifier.fillMaxWidth())
                 Spacer(modifier = Modifier.weight(1f))
 
                 Button(
@@ -269,12 +180,7 @@ fun ContacolpiApp(hasAudioPermission: Boolean, hasLocationPermission: Boolean) {
                                 fusedLocationClient.lastLocation.addOnSuccessListener { loc: Location? ->
                                     if (loc != null) {
                                         val (x, y) = wgs84ToEPSG32632(loc.latitude, loc.longitude)
-                                        currentLocationUTM = LocationUTM32N(
-                                            eastX = x,
-                                            northY = y,
-                                            altitudeZ = loc.altitude,
-                                            accuracyMeters = loc.accuracy
-                                        )
+                                        currentLocationUTM = LocationUTM32N(eastX = x, northY = y, altitudeZ = loc.altitude, accuracyMeters = loc.accuracy)
                                     }
                                     isLocating = false
                                     isTestActive = true
@@ -292,9 +198,7 @@ fun ContacolpiApp(hasAudioPermission: Boolean, hasLocationPermission: Boolean) {
                             isTestActive = true
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp),
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
                     enabled = !isLocating
                 ) {
                     if (isLocating) {
@@ -316,9 +220,7 @@ fun ContacolpiApp(hasAudioPermission: Boolean, hasLocationPermission: Boolean) {
             hasAudioPermission = hasAudioPermission,
             locationUTM = currentLocationUTM,
             onFinishTest = { session ->
-                if (session != null) {
-                    completedTests.add(session)
-                }
+                if (session != null) { completedTests.add(session) }
                 isTestActive = false
             }
         )
@@ -338,18 +240,14 @@ fun CountingScreen(
 ) {
     val context = LocalContext.current
     val stepMeter = stepCm / 100.0
-
     val intervals = remember { mutableStateListOf(IntervalData(stepMeter, 0)) }
     var currentIntervalIndex by remember { mutableStateOf(0) }
     var isRecording by remember { mutableStateOf(false) }
     var sensitivityThreshold by remember { mutableStateOf(3000f) }
-
     val listState = rememberLazyListState()
 
     LaunchedEffect(intervals.size, currentIntervalIndex) {
-        if (intervals.isNotEmpty()) {
-            listState.animateScrollToItem(intervals.size - 1)
-        }
+        if (intervals.isNotEmpty()) { listState.animateScrollToItem(intervals.size - 1) }
     }
 
     DisposableEffect(isRecording) {
@@ -358,28 +256,14 @@ fun CountingScreen(
 
         if (isRecording && hasAudioPermission) {
             val sampleRate = 44100
-            val bufferSize = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-
+            val bufferSize = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
             try {
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    sampleRate,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    bufferSize
-                )
-
+                audioRecord = AudioRecord(MediaRecorder.AudioSource.MIC, sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
                 audioRecord.startRecording()
                 isThreadRunning = true
-
                 thread {
                     val buffer = ShortArray(bufferSize)
                     var lastPeakTime = 0L
-
                     while (isThreadRunning) {
                         val read = audioRecord.read(buffer, 0, buffer.size)
                         if (read > 0) {
@@ -388,32 +272,22 @@ fun CountingScreen(
                                 val absVal = abs(buffer[i].toInt())
                                 if (absVal > maxAmp) maxAmp = absVal
                             }
-
                             val now = System.currentTimeMillis()
                             if (maxAmp > sensitivityThreshold && (now - lastPeakTime) > 300) {
                                 lastPeakTime = now
                                 if (currentIntervalIndex < intervals.size) {
-                                    intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
-                                        blowCount = intervals[currentIntervalIndex].blowCount + 1
-                                    )
+                                    intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(blowCount = intervals[currentIntervalIndex].blowCount + 1)
                                 }
                             }
                         }
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
         onDispose {
             isThreadRunning = false
-            try {
-                audioRecord?.stop()
-                audioRecord?.release()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            try { audioRecord?.stop(); audioRecord?.release() } catch (e: Exception) { e.printStackTrace() }
         }
     }
 
@@ -424,19 +298,8 @@ fun CountingScreen(
             onDismissRequest = { showCancelDialog = false },
             title = { Text("Interrompere la prova?") },
             text = { Text("Tornando alla schermata iniziale, la prova corrente verrà annullata.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showCancelDialog = false
-                    onFinishTest(null)
-                }) {
-                    Text("Annulla ed Esci")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCancelDialog = false }) {
-                    Text("Continua Prova")
-                }
-            }
+            confirmButton = { TextButton(onClick = { showCancelDialog = false; onFinishTest(null) }) { Text("Annulla ed Esci") } },
+            dismissButton = { TextButton(onClick = { showCancelDialog = false }) { Text("Continua Prova") } }
         )
     }
 
@@ -444,219 +307,59 @@ fun CountingScreen(
         topBar = {
             TopAppBar(
                 title = { Text("$projectName ($testType)") },
-                navigationIcon = {
-                    IconButton(onClick = { showCancelDialog = true }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Esci")
-                    }
-                },
+                navigationIcon = { IconButton(onClick = { showCancelDialog = true }) { Icon(Icons.Default.ArrowBack, contentDescription = "Esci") } },
                 actions = {
                     IconButton(onClick = {
-                        val session = TestSession(
-                            projectName = projectName,
-                            operatorName = operatorName,
-                            testType = testType,
-                            date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()),
-                            location = locationUTM,
-                            intervals = intervals.toList()
-                        )
+                        val session = TestSession(projectName = projectName, operatorName = operatorName, testType = testType, date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()), location = locationUTM, intervals = intervals.toList())
                         exportAndShareCSV(context, session)
-                    }) {
-                        Text("CSV", fontWeight = FontWeight.Bold)
-                    }
+                    }) { Text("CSV", fontWeight = FontWeight.Bold) }
                 }
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Operatore: $operatorName", style = MaterialTheme.typography.bodySmall)
                 Text("Tratto attuale: #${currentIntervalIndex + 1}", style = MaterialTheme.typography.bodySmall)
             }
 
             if (locationUTM != null) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))
-                ) {
-                    Text(
-                        text = String.format(
-                            Locale.US,
-                            "GPS (EPSG:32632): X=%.2f m | Y=%.2f m | Z=%.1f m (prec. ±%.1fm)",
-                            locationUTM.eastX, locationUTM.northY, locationUTM.altitudeZ, locationUTM.accuracyMeters
-                        ),
-                        modifier = Modifier.padding(6.dp),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF2E7D32)
-                    )
+                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))) {
+                    Text(text = String.format(Locale.US, "GPS (EPSG:32632): X=%.2f m | Y=%.2f m | Z=%.1f m (prec. ±%.1fm)", locationUTM.eastX, locationUTM.northY, locationUTM.altitudeZ, locationUTM.accuracyMeters), modifier = Modifier.padding(6.dp), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Color(0xFF2E7D32))
                 }
             } else {
-                Text(
-                    text = "GPS non disponibile o non acquisito",
-                    fontSize = 11.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
+                Text(text = "GPS non disponibile o non acquisito", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 6.dp))
             }
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .background(Color(0xFFF5F5F5)),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = PaddingValues(6.dp)
-            ) {
+            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth().background(Color(0xFFF5F5F5)), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(6.dp)) {
                 itemsIndexed(intervals) { idx, item ->
                     val isCurrent = idx == currentIntervalIndex
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else Color.White
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = String.format(Locale.US, "%.1f m", item.depthMeter),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = "${item.blowCount} colpi",
-                                fontSize = 16.sp,
-                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified
-                            )
+                    Card(colors = CardDefaults.cardColors(containerColor = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else Color.White), modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = String.format(Locale.US, "%.1f m", item.depthMeter), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(text = "${item.blowCount} colpi", fontSize = 16.sp, fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal, color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified)
                         }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { val nextDepth = (intervals.size + 1) * stepMeter; intervals.add(IntervalData(nextDepth, 0)); currentIntervalIndex = intervals.size - 1 }, modifier = Modifier.fillMaxWidth()) { Text("PROSSIMO TRATTO (+${stepCm.toInt()} cm)") }
 
-            Button(
-                onClick = {
-                    val nextDepth = (intervals.size + 1) * stepMeter
-                    intervals.add(IntervalData(nextDepth, 0))
-                    currentIntervalIndex = intervals.size - 1
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("PROSSIMO TRATTO (+${stepCm.toInt()} cm)")
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                OutlinedButton(onClick = { if (intervals[currentIntervalIndex].blowCount > 0) { intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(blowCount = intervals[currentIntervalIndex].blowCount - 1) } }) { Text("-1") }
+                OutlinedButton(onClick = { if (currentIntervalIndex > 0 && intervals[currentIntervalIndex].blowCount > 0) { intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(blowCount = intervals[currentIntervalIndex].blowCount - 1); intervals[currentIntervalIndex - 1] = intervals[currentIntervalIndex - 1].copy(blowCount = intervals[currentIntervalIndex - 1].blowCount + 1) } }) { Text("< Sposta prec.") }
+                OutlinedButton(onClick = { if (currentIntervalIndex < intervals.size - 1 && intervals[currentIntervalIndex].blowCount > 0) { intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(blowCount = intervals[currentIntervalIndex].blowCount - 1); intervals[currentIntervalIndex + 1] = intervals[currentIntervalIndex + 1].copy(blowCount = intervals[currentIntervalIndex + 1].blowCount + 1) } }) { Text("Sposta succ. >") }
+                OutlinedButton(onClick = { intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(blowCount = intervals[currentIntervalIndex].blowCount + 1) }) { Text("+1") }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                OutlinedButton(onClick = {
-                    if (intervals[currentIntervalIndex].blowCount > 0) {
-                        intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
-                            blowCount = intervals[currentIntervalIndex].blowCount - 1
-                        )
-                    }
-                }) {
-                    Text("-1")
-                }
-
-                OutlinedButton(onClick = {
-                    if (currentIntervalIndex > 0 && intervals[currentIntervalIndex].blowCount > 0) {
-                        intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
-                            blowCount = intervals[currentIntervalIndex].blowCount - 1
-                        )
-                        intervals[currentIntervalIndex - 1] = intervals[currentIntervalIndex - 1].copy(
-                            blowCount = intervals[currentIntervalIndex - 1].blowCount + 1
-                        )
-                    }
-                }) {
-                    Text("< Sposta prec.")
-                }
-
-                OutlinedButton(onClick = {
-                    if (currentIntervalIndex < intervals.size - 1 && intervals[currentIntervalIndex].blowCount > 0) {
-                        intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
-                            blowCount = intervals[currentIntervalIndex].blowCount - 1
-                        )
-                        intervals[currentIntervalIndex + 1] = intervals[currentIntervalIndex + 1].copy(
-                            blowCount = intervals[currentIntervalIndex + 1].blowCount + 1
-                        )
-                    }
-                }) {
-                    Text("Sposta succ. >")
-                }
-
-                OutlinedButton(onClick = {
-                    intervals[currentIntervalIndex] = intervals[currentIntervalIndex].copy(
-                        blowCount = intervals[currentIntervalIndex].blowCount + 1
-                    )
-                }) {
-                    Text("+1")
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(
-                    onClick = { isRecording = !isRecording },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isRecording) Color(0xFFD32F2F) else Color(0xFF388E3C)
-                    )
-                ) {
-                    Text(if (isRecording) "PAUSA ASCOLTO" else "AVVIA ASCOLTO")
-                }
-
-                Text(
-                    text = if (isRecording) "Microfono attivo" else "In pausa",
-                    fontSize = 12.sp,
-                    color = if (isRecording) Color(0xFF388E3C) else Color.Gray
-                )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = { isRecording = !isRecording }, colors = ButtonDefaults.buttonColors(containerColor = if (isRecording) Color(0xFFD32F2F) else Color(0xFF388E3C))) { Text(if (isRecording) "PAUSA ASCOLTO" else "AVVIA ASCOLTO") }
+                Text(text = if (isRecording) "Microfono attivo" else "In pausa", fontSize = 12.sp, color = if (isRecording) Color(0xFF388E3C) else Color.Gray)
             }
 
             Spacer(modifier = Modifier.height(6.dp))
-
-            Button(
-                onClick = {
-                    val session = TestSession(
-                        projectName = projectName,
-                        operatorName = operatorName,
-                        testType = testType,
-                        date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()),
-                        location = locationUTM,
-                        intervals = intervals.toList()
-                    )
-                    onFinishTest(session)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-            ) {
-                Text("FINE PROVA")
-            }
+            Button(onClick = { val session = TestSession(projectName = projectName, operatorName = operatorName, testType = testType, date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()), location = locationUTM, intervals = intervals.toList()); onFinishTest(session) }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("FINE PROVA") }
         }
     }
 }
@@ -665,7 +368,6 @@ fun exportAndShareCSV(context: Context, session: TestSession) {
     try {
         val fileName = "Contacolpi_${session.projectName.replace(" ", "_")}_${System.currentTimeMillis()}.csv"
         val file = File(context.cacheDir, fileName)
-
         val builder = StringBuilder()
         builder.append("Cantiere;${session.projectName}\n")
         builder.append("Operatore;${session.operatorName}\n")
@@ -679,31 +381,21 @@ fun exportAndShareCSV(context: Context, session: TestSession) {
             builder.append(String.format(Locale.US, "Quota Z (m s.l.m.);%.1f\n", session.location.altitudeZ))
             builder.append(String.format(Locale.US, "Accuratezza GPS (m);%.1f\n", session.location.accuracyMeters))
         } else {
-            builder.append("Coord X (Est);N/D\n")
-            builder.append("Coord Y (Nord);N/D\n")
-            builder.append("Quota Z (m s.l.m.);N/D\n")
+            builder.append("Coord X (Est);N/D\nCoord Y (Nord);N/D\nQuota Z (m s.l.m.);N/D\n")
         }
 
         builder.append("\nProfondita (m);Colpi\n")
-
         for (interval in session.intervals) {
             builder.append(String.format(Locale.US, "%.1f;%d\n", interval.depthMeter, interval.blowCount))
         }
 
         file.writeText(builder.toString())
-
-        val uri = FileProvider.getUriForFile(
-            context,
-            "com.geotec.contacolpi.fileprovider",
-            file
-        )
-
+        val uri = FileProvider.getUriForFile(context, "com.geotec.contacolpi.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/csv"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-
         context.startActivity(Intent.createChooser(intent, "Esporta CSV con:"))
     } catch (e: Exception) {
         e.printStackTrace()
