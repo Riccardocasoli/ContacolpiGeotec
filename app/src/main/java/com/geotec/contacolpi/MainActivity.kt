@@ -82,8 +82,11 @@ fun wgs84ToEPSG32632(lat: Double, lon: Double): Pair<Double, Double> {
             + (15 * e2 * e2 / 256 + 45 * e2 * e2 * e2 / 1024) * sin(4 * latRad)
             - (35 * e2 * e2 * e2 / 3072) * sin(6 * latRad))
 
-    val easting = k0 * N * (A + (1 - T + C) * A * A * A / 6 + (5 - 18 * T + T * T + 72 * C - 58 * e2prime) * A * A * A * A * A / 120) + 500000.0
-    val northing = k0 * (M + N * tan(latRad) * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A * A * A * A / 24 + (61 - 58 * T + T * T + 600 * C - 330 * e2prime) * A * A * A * A * A * A / 720))
+    val eTerm = A + (1 - T + C) * A * A * A / 6.0 + (5 - 18 * T + T * T + 72 * C - 58 * e2prime) * A * A * A * A * A / 120.0
+    val easting = k0 * N * eTerm + 500000.0
+
+    val nTerm = (A * A / 2.0) + (5 - T + 9 * C + 4 * C * C) * A * A * A * A / 24.0 + (61 - 58 * T + T * T + 600 * C - 330 * e2prime) * A * A * A * A * A * A / 720.0
+    val northing = k0 * (M + N * tan(latRad) * nTerm)
 
     return Pair(easting, northing)
 }
@@ -103,20 +106,24 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val audioGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val locationGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        try {
+            val audioGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            val locationGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-        hasAudioPermission = audioGranted
-        hasLocationPermission = locationGranted
+            hasAudioPermission = audioGranted
+            hasLocationPermission = locationGranted
 
-        if (!audioGranted || !locationGranted) {
-            permissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.RECORD_AUDIO,
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
+            if (!audioGranted || !locationGranted) {
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.RECORD_AUDIO,
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
                 )
-            )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
         setContent {
@@ -257,8 +264,8 @@ fun ContacolpiApp(hasAudioPermission: Boolean, hasLocationPermission: Boolean) {
                     onClick = {
                         isLocating = true
                         if (hasLocationPermission) {
-                            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
                             try {
+                                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
                                 fusedLocationClient.lastLocation.addOnSuccessListener { loc: Location? ->
                                     if (loc != null) {
                                         val (x, y) = wgs84ToEPSG32632(loc.latitude, loc.longitude)
@@ -275,7 +282,8 @@ fun ContacolpiApp(hasAudioPermission: Boolean, hasLocationPermission: Boolean) {
                                     isLocating = false
                                     isTestActive = true
                                 }
-                            } catch (e: SecurityException) {
+                            } catch (e: Exception) {
+                                e.printStackTrace()
                                 isLocating = false
                                 isTestActive = true
                             }
@@ -287,7 +295,7 @@ fun ContacolpiApp(hasAudioPermission: Boolean, hasLocationPermission: Boolean) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp),
-                    enabled = hasAudioPermission && !isLocating
+                    enabled = !isLocating
                 ) {
                     if (isLocating) {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
